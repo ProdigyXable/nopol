@@ -55,6 +55,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -64,11 +65,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.apache.commons.io.FileUtils;
 import org.json.JSONObject;
+import org.junit.runner.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import spoon.reflect.cu.SourcePosition;
 import spoon.reflect.declaration.CtClass;
 import spoon.reflect.declaration.CtType;
+import utdallas.edu.profl.replicate.patchcategory.DefaultPatchCategories;
 import xxl.java.compiler.DynamicCompilationException;
 import xxl.java.junit.TestCase;
 import xxl.java.junit.TestCasesListener;
@@ -110,6 +113,10 @@ public class NoPol {
         this.spooner = new SpoonedProject(this.sourceFiles, nopolContext);
         this.testClasses = nopolContext.getProjectTests();
         this.testPatch = new TestPatch(this.sourceFiles[0], this.spooner, nopolContext);
+
+        if (this.nopolContext.isEnableProfl()) {
+            this.nopolContext.getProflRank().outputSbflSus();
+        }
     }
 
     /**
@@ -128,6 +135,20 @@ public class NoPol {
         }
 
         this.localizer = this.createLocalizer();
+
+        TestCasesListener l = this.reRunTestCases(this.testClasses, classpath);
+        
+        System.out.println("----------------");
+        logger.info(String.format("Original test suite information: totalTests=%d, failedTests=%d, passingTests=%d", l.allTests().size(), l.numberOfFailedTests(), l.successfulTests().size()));
+        System.out.println("----------------");
+        for (TestCase tc : l.failedTests()) {
+            logger.debug(String.format("Originally failing test case %s#%s", tc.className(), tc.testName()));
+        }
+        System.out.println("----------------");
+        for (TestCase tc : l.successfulTests()) {
+            logger.debug(String.format("Originally passing test case %s#%s", tc.className(), tc.testName()));
+        }
+        System.out.println("----------------");
 
         nopolResult.setNbTests(this.testClasses.length);
         if (nopolContext.getOracle() == NopolContext.NopolOracle.SYMBOLIC) {
@@ -169,6 +190,9 @@ public class NoPol {
 
         nopolResult.setNopolStatus(status);
 
+        if (this.nopolContext.isEnableProfl()) {
+            this.nopolContext.getProflRank().outputProflResults();
+        }
         return this.nopolResult;
     }
 
@@ -195,8 +219,9 @@ public class NoPol {
     private void solveWithMultipleBuild(Map<SourceLocation, List<TestResult>> testListPerStatement) {
         int n = 0;
         if (testListPerStatement.size() == 0) {
-            logger.debug("OOPS, no statement at all, no test results");
+            logger.debug("OOPS, no source /test  statements at all, no test results");
         }
+
         for (SourceLocation sourceLocation : testListPerStatement.keySet()) {
             n++;
             List<TestResult> tests = testListPerStatement.get(sourceLocation);
@@ -207,37 +232,40 @@ public class NoPol {
                 continue;
             }
 
-            logger.debug("statement #" + n);
+            logger.debug("statement/iteration #" + n);
 
             runOnStatement(sourceLocation, tests);
-            if (nopolContext.isOnlyOneSynthesisResult() && !this.nopolResult.getPatches().isEmpty()) {
-                return;
+
+            if (!nopolContext.isEnableProfl()) {
+
+                // patches is updated via runOnStatement
+                if (nopolContext.isOnlyOneSynthesisResult() && !this.nopolResult.getPatches().isEmpty()) {
+                    return;
+                }
             }
         }
     }
 
     private void runOnStatement(SourceLocation sourceLocation, List<TestResult> tests) {
+        System.out.println("-----------------");
+        
         logger.debug("Analysing {} which is executed by {} tests", sourceLocation, tests.size());
         SpoonedClass spoonCl = spooner.forked(sourceLocation.getRootClassName());
         if (spoonCl == null || spoonCl.getSimpleType() == null) {
             logger.debug("cannot spoon " + sourceLocation.toString());
             return;
         }
-        System.out.println(spoonCl.getSimpleType().hashCode());
+
         NopolProcessorBuilder builder = new NopolProcessorBuilder(spoonCl.getSimpleType().getPosition().getFile(), sourceLocation.getLineNumber(), nopolContext);
 
-        String methodName = spoonCl.qualifiedClassName();
-        int lineNumber = sourceLocation.getLineNumber();
-
-        logger.info("methodName=" + methodName);
-        logger.info("lineNumber=" + lineNumber);
-
+        logger.debug("uniqueID=" + spoonCl.getSimpleType().hashCode());
         // here, we only collect the processors to be applied later
         // this does not change the class itself
         spoonCl.process(builder);
 
         final List<NopolProcessor> nopolProcessors = builder.getNopolProcessors();
         for (NopolProcessor nopolProcessor : nopolProcessors) {
+
             logger.debug("looking with " + nopolProcessor.getClass().toString());
 
             SourcePosition position = nopolProcessor.getTarget().getPosition();
@@ -247,8 +275,12 @@ public class NoPol {
             List<Patch> patches = executeNopolProcessor(tests, sourceLocation, spoonCl, nopolProcessor);
             this.nopolResult.addPatches(patches);
 
-            if (nopolContext.isOnlyOneSynthesisResult() && !patches.isEmpty()) {
-                return;
+            if (!nopolContext.isEnableProfl()) {
+
+                // patches is updated via runOnStatement
+                if (nopolContext.isOnlyOneSynthesisResult() && !patches.isEmpty()) {
+                    return;
+                }
             }
         }
     }
@@ -281,23 +313,84 @@ public class NoPol {
     }
 
     private List<Patch> runNopolProcessor(List<TestResult> tests, SourceLocation sourceLocation, SpoonedClass spoonCl, NopolProcessor nopolProcessor) {
+        String[] relevantTestCases = null;
 
-        String[] failingTestCase = getFailingTestCase(tests);
-        if (failingTestCase.length == 0) {
+        relevantTestCases = getFailingTestCases(tests);
+
+        if (relevantTestCases.length == 0) {
             throw new RuntimeException("failingTestCase: nothing to repair, no failing test cases");
         }
 
-        Collection<TestCase> failingTestCasesValidated = reRunFailingTestCases(failingTestCase, classpath);
+        TestCasesListener tcl = reRunTestCases(relevantTestCases, classpath);
+        Collection<TestCase> testCasesValidated = tcl.failedTests();
 
-        if (failingTestCasesValidated.isEmpty()) {
-            throw new RuntimeException("failingTestCasesValidated: nothing to repair, no failing test cases");
+        if (testCasesValidated.isEmpty()) {
+            throw new RuntimeException("testCasesValidated: nothing to repair, no failing test cases");
+        }
+
+        if (nopolContext.isEnableProfl()) {
+            List<TestCase> originallyFailing = this.getFailingTestCasesAsList(tests);
+            int ff = 0;
+            int fp = 0;
+            int pf = 0;
+            int pp = 0;
+
+            for (TestCase tc : testCasesValidated) {
+                if (originallyFailing.contains(tc)) {
+                    ff++;
+                } else {
+                    pf++;
+                }
+            }
+
+            for (TestCase tc : tcl.successfulTests()) {
+                if (originallyFailing.contains(tc)) {
+                    fp++;
+                } else {
+                    pp++;
+                }
+            }
+
+            logger.info(String.format("Test suite results: ff=%d, fp=%d, pf=%d, pp=%d", ff, fp, pf, pp));
+
+            String methodName = spoonCl.qualifiedClassName();
+            int lineNumber = sourceLocation.getLineNumber();
+            String methodSignature = this.nopolContext.getProflMethod().lookup(methodName, lineNumber);
+
+            if (methodSignature == null) {
+                try {
+                    methodSignature = this.nopolContext.getProflMethod().getMethodFromPackageNumber(methodName, lineNumber);
+                } catch (Exception ex) {
+                    logger.info(String.format("Could not find appropriate method signature for %s:%d", methodName, lineNumber));
+                }
+            }
+
+            logger.info("modifedMethodSignature=" + methodSignature);
+
+            Map<String, Double> m = new TreeMap();
+            m.put(methodSignature, this.nopolContext.getProflRank().getGeneralMethodSusValues().get(methodSignature));
+
+            if (fp > 0 && pf == 0) {
+                logger.info("CleanFix detected");
+                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.CLEAN_FIX, m);
+            } else if (fp > 0 && pf > 0) {
+                logger.info("NoisyFix detected");
+                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NOISY_FIX, m);
+            } else if (fp == 0 && pf == 0) {
+                logger.info("NoneFix detected");
+                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NONE_FIX, m);
+            } else {
+                logger.info("NegFix detected");
+                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NEG_FIX, m);
+            }
+
         }
 
         // selecting the synthesizer, typically SMT or Dynamoth
         Synthesizer synth = SynthesizerFactory.build(sourceFiles, spooner, nopolContext, sourceLocation, nopolProcessor, spoonCl);
 
         // Collecting the patches
-        List<Patch> tmpPatches = synth.findAngelicValuesAndBuildPatch(classpath, tests, failingTestCasesValidated, nopolContext.getMaxTimeBuildPatch(), nopolResult);
+        List<Patch> tmpPatches = synth.findAngelicValuesAndBuildPatch(classpath, tests, testCasesValidated, nopolContext.getMaxTimeBuildPatch(), nopolResult);
 
         // Final check: we recompile the patch and run all tests again
         List<Patch> finalPatches = new ArrayList<>();
@@ -337,7 +430,7 @@ public class NoPol {
         return failingClassTest;
     }
 
-    private String[] getFailingTestCase(List<TestResult> tests) {
+    private String[] getFailingTestCases(List<TestResult> tests) {
         List<TestCase> failingTests = getFailingTestCasesAsList(tests);
         String[] array = new String[failingTests.size()];
         for (int i = 0; i < failingTests.size(); i++) {
@@ -346,10 +439,18 @@ public class NoPol {
         return array;
     }
 
-    private Collection<TestCase> reRunFailingTestCases(String[] testClasses, URL[] deps) {
+    private String[] convertTestCasesToArray(List<TestResult> tests) {
+        String[] array = new String[tests.size()];
+        for (int i = 0; i < tests.size(); i++) {
+            array[i] = tests.get(i).getTestCase().className();
+        }
+        return array;
+    }
+
+    private TestCasesListener reRunTestCases(String[] testClasses, URL[] deps) {
         TestCasesListener listener = new TestCasesListener();
-        TestSuiteExecution.runCasesIn(testClasses, new BottomTopURLClassLoader(deps, Thread.currentThread().getContextClassLoader()), listener, this.nopolContext);
-        return listener.failedTests();
+        Result r = TestSuiteExecution.runCasesIn(testClasses, new BottomTopURLClassLoader(deps, Thread.currentThread().getContextClassLoader()), listener, this.nopolContext);
+        return listener;
     }
 
     public SpoonedProject getSpooner() {

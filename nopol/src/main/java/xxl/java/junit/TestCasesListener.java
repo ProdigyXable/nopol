@@ -1,5 +1,7 @@
 package xxl.java.junit;
 
+import static java.lang.String.format;
+import java.util.Collection;
 import org.junit.runner.Description;
 import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
@@ -7,12 +9,7 @@ import org.junit.runner.notification.RunListener;
 import org.slf4j.Logger;
 import xxl.java.container.classic.MetaList;
 import xxl.java.container.classic.MetaSet;
-
-import java.util.Collection;
-
-import static java.lang.String.format;
 import static xxl.java.library.LoggerLibrary.loggerFor;
-
 
 public class TestCasesListener extends RunListener {
 
@@ -65,23 +62,23 @@ public class TestCasesListener extends RunListener {
     }
 
     protected void processTestStarted(TestCase testCase) {
-    	/* subclassResponsibility */
+        /* subclassResponsibility */
     }
 
     protected void processSuccessfulRun(TestCase testCase) {
-		/* subclassResponsibility */
+        /* subclassResponsibility */
     }
 
     protected void processFailedRun(TestCase testCase) {
-    	/* subclassResponsibility */
+        /* subclassResponsibility */
     }
 
     protected void processTestFinished(TestCase testCase) {
-    	/* subclassResponsibility */
+        /* subclassResponsibility */
     }
 
     protected void processAfterRun() {
-    	/* subclassResponsibility */
+        /* subclassResponsibility */
     }
 
     public int numberOfTests() {

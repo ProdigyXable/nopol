@@ -2,8 +2,6 @@ package fr.inria.lille.repair.common.config;
 
 import fr.inria.lille.repair.common.finder.TestClassesFinder;
 import fr.inria.lille.repair.common.synth.RepairType;
-import xxl.java.library.FileLibrary;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
@@ -13,6 +11,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
+import utdallas.edu.profl.replicate.util.MethodLineCoverageInterface;
+import utdallas.edu.profl.replicate.util.ProflResultRanking;
+import utdallas.edu.profl.replicate.util.TestLineCoverageInterface;
+import utdallas.edu.profl.replicate.util.XiaMethodLineCoverage;
+import utdallas.edu.profl.replicate.util.XiaTestLineCoverage;
+import xxl.java.library.FileLibrary;
 
 /**
  * Created by Thomas Durieux on 23/03/15.
@@ -113,6 +117,44 @@ public class NopolContext implements Serializable {
 
 	// this define the root path to compute the diff pathes (see PatchGenerator)
 	private Path rootProject;
+        
+        private boolean enableProfl = false;
+        private MethodLineCoverageInterface proflMethod = null;
+        private TestLineCoverageInterface proflTest = null;
+        private ProflResultRanking proflRank = null;
+
+    public boolean isEnableProfl() {
+        return enableProfl;
+    }
+
+    public void setEnableProfl(boolean enableProfl) {
+        System.out.println("Enable Profl-ranking?:" + enableProfl);
+        this.enableProfl = enableProfl;
+    }
+
+    public MethodLineCoverageInterface getProflMethod() {
+        return proflMethod;
+    }
+
+    public void setProflMethod(String s) throws Exception {
+        this.proflMethod = new XiaMethodLineCoverage(s);
+    }
+
+    public TestLineCoverageInterface getProflTest() {
+        return proflTest;
+    }
+
+    public void setProflTest(String s) throws Exception {
+        this.proflTest = new XiaTestLineCoverage(s);
+    }
+
+    public ProflResultRanking getProflRank() {
+        return proflRank;
+    }
+
+    public void setProflRank(String s) throws Exception {
+        this.proflRank = new ProflResultRanking(this.proflMethod, this.proflTest, s);
+    }
 
 
 	public NopolContext() {
@@ -586,6 +628,7 @@ public class NopolContext implements Serializable {
 				", complianceLevel=" + complianceLevel +
 				", outputFolder=" + outputFolder +
 				", json=" + json +
+                                ", profl=" + this.enableProfl +
 				'}';
 	}
 
