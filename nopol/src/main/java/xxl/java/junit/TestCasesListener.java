@@ -20,15 +20,13 @@ public class TestCasesListener extends RunListener {
 
     @Override
     public void testRunStarted(Description description) throws Exception {
-        allTests().clear();
-        failedTests().clear();
         processBeforeRun();
     }
 
     @Override
     public void testStarted(Description description) throws Exception {
         TestCase testCase = addTestCaseTo(allTests(), description);
-        //logDebug(logger(), format("[#%d. %s started...]", numberOfTests(), testCase.toString()));
+        // System.out.println(String.format("[#%d. %s started...]", numberOfTests(), testCase.toString()));
         processTestStarted(testCase);
     }
 
@@ -42,10 +40,10 @@ public class TestCasesListener extends RunListener {
     public void testFinished(Description description) throws Exception {
         TestCase testCase = testCaseOf(description);
         if (failedTests().contains(testCase)) {
-            //logDebug(logger(), format("[#%d. FAILED]", numberOfTests()));
+            // System.out.println(format("[#%d. FAILED]", numberOfTests()));
             processFailedRun(testCase);
         } else {
-            //logDebug(logger(), format("[#%d. SUCCESS]", numberOfTests()));
+            // System.out.println(format("[#%d. SUCCESS]", numberOfTests()));
             processSuccessfulRun(testCase);
         }
         processTestFinished(testCase);
@@ -53,7 +51,7 @@ public class TestCasesListener extends RunListener {
 
     @Override
     public void testRunFinished(Result result) throws Exception {
-        //logTestRunFinished(result);
+        logTestRunFinished(result);
         processAfterRun();
     }
 

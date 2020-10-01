@@ -3,6 +3,9 @@ package fr.inria.lille.diff;
 import fr.inria.lille.repair.common.config.NopolContext;
 import fr.inria.lille.repair.common.patch.Patch;
 import fr.inria.lille.repair.common.synth.RepairType;
+import java.io.File;
+import java.io.IOException;
+import java.io.StringReader;
 import org.apache.commons.io.FileUtils;
 import spoon.reflect.code.CtBlock;
 import spoon.reflect.code.CtIf;
@@ -17,10 +20,6 @@ import spoon.reflect.declaration.CtType;
 import spoon.reflect.factory.Factory;
 import spoon.reflect.visitor.EarlyTerminatingScanner;
 import spoon.reflect.visitor.filter.LineFilter;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.StringReader;
 
 public class PatchGenerator {
 	private final Patch patch;

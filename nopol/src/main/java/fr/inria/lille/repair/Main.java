@@ -167,6 +167,7 @@ public class Main {
                 nopolContext.setProflMethod(jsapConfig.getString("proflMethod"));
                 nopolContext.setProflTest(jsapConfig.getString("proflTest"));
                 nopolContext.setProflRank(jsapConfig.getString("proflFailing"));
+                nopolContext.setBuggyMethods(jsapConfig.getString("buggyMethods"));
                 LoggerFactory.getLogger(this.getClass()).info("Profl successfully initialized!");
             } catch (Exception e) {
                 LoggerFactory.getLogger(this.getClass()).info("Profl execution failed to initialize");
@@ -209,7 +210,7 @@ public class Main {
         } else if (str.equals("symbolic")) {
             return NopolContext.NopolOracle.SYMBOLIC;
         }
-        throw new RuntimeException("Unknow Nopol oracle " + str);
+        throw new RuntimeException("Unknown Nopol oracle " + str);
     }
 
     private static NopolContext.NopolSolver strToSolver(String str) {
@@ -420,6 +421,15 @@ public class Main {
         proflConfigFailing.setDefault("");
         proflConfigFailing.setHelp("Set profl failing testcase filepath");
         jsap.registerParameter(proflConfigFailing);
+        
+        FlaggedOption buggyMethods = new FlaggedOption("buggyMethods");
+        buggyMethods.setRequired(false);
+        buggyMethods.setAllowMultipleDeclarations(false);
+        buggyMethods.setLongFlag("buggyMethods");
+        buggyMethods.setStringParser(JSAP.STRING_PARSER);
+        buggyMethods.setDefault("");
+        buggyMethods.setHelp("Set known buggy/incorrect methods");
+        jsap.registerParameter(buggyMethods);
 
         QualifiedSwitch outputJson = new QualifiedSwitch("outputJson");
         outputJson.setRequired(false);

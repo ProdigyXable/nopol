@@ -39,6 +39,7 @@ import fr.inria.lille.repair.nopol.spoon.symbolic.TestExecutorProcessor;
 import fr.inria.lille.repair.nopol.synth.SMTNopolSynthesizer;
 import fr.inria.lille.repair.nopol.synth.Synthesizer;
 import fr.inria.lille.repair.nopol.synth.SynthesizerFactory;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -52,6 +53,8 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,6 +66,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.logging.Level;
 import org.apache.commons.io.FileUtils;
 import org.json.JSONObject;
 import org.junit.runner.Result;
@@ -72,6 +76,7 @@ import spoon.reflect.cu.SourcePosition;
 import spoon.reflect.declaration.CtClass;
 import spoon.reflect.declaration.CtType;
 import utdallas.edu.profl.replicate.patchcategory.DefaultPatchCategories;
+import utdallas.edu.profl.replicate.util.ProflResultRanking;
 import xxl.java.compiler.DynamicCompilationException;
 import xxl.java.junit.TestCase;
 import xxl.java.junit.TestCasesListener;
@@ -84,6 +89,7 @@ public class NoPol {
 
     private FaultLocalizer localizer;
 
+    private static int patchNum = 0;
     public static Statement currentStatement;
     private URL[] classpath;
     private final TestPatch testPatch;
@@ -94,6 +100,7 @@ public class NoPol {
     public long startTime;
     private NopolContext nopolContext;
     private NopolResult nopolResult;
+    private TestCasesListener originalTestResults;
 
     public NoPol(NopolContext nopolContext) {
         this.startTime = System.currentTimeMillis();
@@ -130,22 +137,28 @@ public class NoPol {
     }
 
     public NopolResult build() {
+
+        System.out.println("Saving initial profl information");
+        saveProflInformation();
+
         if (this.testClasses == null) {
             this.testClasses = new TestClassesFinder().findIn(classpath, false);
         }
 
         this.localizer = this.createLocalizer();
 
-        TestCasesListener l = this.reRunTestCases(this.testClasses, classpath);
-        
+        originalTestResults = this.reRunTestCases(this.testClasses, classpath);
+
         System.out.println("----------------");
-        logger.info(String.format("Original test suite information: totalTests=%d, failedTests=%d, passingTests=%d", l.allTests().size(), l.numberOfFailedTests(), l.successfulTests().size()));
+        logger.info(String.format("Original test suite information: totalTests=%d, failedTests=%d, passingTests=%d", originalTestResults.allTests().size(), originalTestResults.numberOfFailedTests(), originalTestResults.successfulTests().size()));
         System.out.println("----------------");
-        for (TestCase tc : l.failedTests()) {
+
+        for (TestCase tc : originalTestResults.failedTests()) {
             logger.debug(String.format("Originally failing test case %s#%s", tc.className(), tc.testName()));
         }
         System.out.println("----------------");
-        for (TestCase tc : l.successfulTests()) {
+
+        for (TestCase tc : originalTestResults.successfulTests()) {
             logger.debug(String.format("Originally passing test case %s#%s", tc.className(), tc.testName()));
         }
         System.out.println("----------------");
@@ -169,6 +182,23 @@ public class NoPol {
             }
         }
         Map<SourceLocation, List<TestResult>> testListPerStatement = this.localizer.getTestListPerStatement();
+        Map<SourceLocation, List<TestResult>> filteredTestListPerStatement = new LinkedHashMap();
+
+        for (SourceLocation sl : testListPerStatement.keySet()) {
+            for (String s : this.nopolContext.getBuggyMethods()) {
+                try {
+                    String methodSig = this.nopolContext.getProflRank().getMethodCoverage().getMethodFromPackageNumber(sl.getContainingClassName(), sl.getLineNumber());
+                    if (s.equals(methodSig)) {
+                        System.out.println("Modification point added: " + sl);
+                        filteredTestListPerStatement.put(sl, testListPerStatement.get(sl));
+                    }
+                } catch (Exception e) {
+                    System.out.println(e.getMessage());
+                }
+            }
+        }
+
+        testListPerStatement = filteredTestListPerStatement;
 
         this.nopolResult.setNbStatements(testListPerStatement.keySet().size());
         solveWithMultipleBuild(testListPerStatement);
@@ -193,6 +223,7 @@ public class NoPol {
         if (this.nopolContext.isEnableProfl()) {
             this.nopolContext.getProflRank().outputProflResults();
         }
+
         return this.nopolResult;
     }
 
@@ -218,7 +249,7 @@ public class NoPol {
      */
     private void solveWithMultipleBuild(Map<SourceLocation, List<TestResult>> testListPerStatement) {
         int n = 0;
-        if (testListPerStatement.size() == 0) {
+        if (testListPerStatement.isEmpty()) {
             logger.debug("OOPS, no source /test  statements at all, no test results");
         }
 
@@ -228,10 +259,11 @@ public class NoPol {
 
             // no failing test case executes this location
             // so there is nothing to repair here
-            if (getFailingTestCasesAsList(tests).size() == 0) {
+            if (getFailingTestCasesAsList(tests).isEmpty()) {
                 continue;
             }
 
+            System.out.println("-----------------");
             logger.debug("statement/iteration #" + n);
 
             runOnStatement(sourceLocation, tests);
@@ -247,8 +279,7 @@ public class NoPol {
     }
 
     private void runOnStatement(SourceLocation sourceLocation, List<TestResult> tests) {
-        System.out.println("-----------------");
-        
+
         logger.debug("Analysing {} which is executed by {} tests", sourceLocation, tests.size());
         SpoonedClass spoonCl = spooner.forked(sourceLocation.getRootClassName());
         if (spoonCl == null || spoonCl.getSimpleType() == null) {
@@ -265,7 +296,7 @@ public class NoPol {
 
         final List<NopolProcessor> nopolProcessors = builder.getNopolProcessors();
         for (NopolProcessor nopolProcessor : nopolProcessors) {
-
+            System.out.println("---");
             logger.debug("looking with " + nopolProcessor.getClass().toString());
 
             SourcePosition position = nopolProcessor.getTarget().getPosition();
@@ -328,64 +359,6 @@ public class NoPol {
             throw new RuntimeException("testCasesValidated: nothing to repair, no failing test cases");
         }
 
-        if (nopolContext.isEnableProfl()) {
-            List<TestCase> originallyFailing = this.getFailingTestCasesAsList(tests);
-            int ff = 0;
-            int fp = 0;
-            int pf = 0;
-            int pp = 0;
-
-            for (TestCase tc : testCasesValidated) {
-                if (originallyFailing.contains(tc)) {
-                    ff++;
-                } else {
-                    pf++;
-                }
-            }
-
-            for (TestCase tc : tcl.successfulTests()) {
-                if (originallyFailing.contains(tc)) {
-                    fp++;
-                } else {
-                    pp++;
-                }
-            }
-
-            logger.info(String.format("Test suite results: ff=%d, fp=%d, pf=%d, pp=%d", ff, fp, pf, pp));
-
-            String methodName = spoonCl.qualifiedClassName();
-            int lineNumber = sourceLocation.getLineNumber();
-            String methodSignature = this.nopolContext.getProflMethod().lookup(methodName, lineNumber);
-
-            if (methodSignature == null) {
-                try {
-                    methodSignature = this.nopolContext.getProflMethod().getMethodFromPackageNumber(methodName, lineNumber);
-                } catch (Exception ex) {
-                    logger.info(String.format("Could not find appropriate method signature for %s:%d", methodName, lineNumber));
-                }
-            }
-
-            logger.info("modifedMethodSignature=" + methodSignature);
-
-            Map<String, Double> m = new TreeMap();
-            m.put(methodSignature, this.nopolContext.getProflRank().getGeneralMethodSusValues().get(methodSignature));
-
-            if (fp > 0 && pf == 0) {
-                logger.info("CleanFix detected");
-                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.CLEAN_FIX, m);
-            } else if (fp > 0 && pf > 0) {
-                logger.info("NoisyFix detected");
-                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NOISY_FIX, m);
-            } else if (fp == 0 && pf == 0) {
-                logger.info("NoneFix detected");
-                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NONE_FIX, m);
-            } else {
-                logger.info("NegFix detected");
-                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NEG_FIX, m);
-            }
-
-        }
-
         // selecting the synthesizer, typically SMT or Dynamoth
         Synthesizer synth = SynthesizerFactory.build(sourceFiles, spooner, nopolContext, sourceLocation, nopolProcessor, spoonCl);
 
@@ -395,21 +368,102 @@ public class NoPol {
         // Final check: we recompile the patch and run all tests again
         List<Patch> finalPatches = new ArrayList<>();
         if (tmpPatches.size() > 0) {
-            for (int i = 0; i < tmpPatches.size() && i < nopolContext.getMaxPatches(); i++) {
+            for (int i = 0; i < tmpPatches.size() && (true || i < nopolContext.getMaxPatches()); i++) {
                 Patch patch = tmpPatches.get(i);
-                if (nopolContext.isSkipRegressionStep() || isOk(patch, tests, synth.getProcessor())) {
+                TestCasesListener validationListener = isOk(patch, new LinkedList(this.originalTestResults.allTests()), synth.getProcessor());
+                if (nopolContext.isEnableProfl()) {
+                    int ff = 0;
+                    int fp = 0;
+                    int pf = 0;
+                    int pp = 0;
+
+                    for (TestCase tc : originalTestResults.failedTests()) {
+                        if (validationListener.failedTests().contains(tc)) {
+                            ff++;
+                            logger.info(String.format("[Fail->Fail] %s", tc));
+                        } else {
+                            fp++;
+                            logger.info(String.format("[Fail->Pass] %s", tc));
+                        }
+                    }
+
+                    for (TestCase tc : originalTestResults.successfulTests()) {
+                        if (validationListener.failedTests().contains(tc)) {
+                            pf++;
+                            logger.info(String.format("[Pass->Fail] %s", tc));
+                        } else {
+                            pp++;
+                            logger.info(String.format("[Pass->Pass] %s", tc));
+                        }
+                    }
+
+                    logger.info(String.format("Test suite results: ff=%d, fp=%d, pf=%d, pp=%d", ff, fp, pf, pp));
+
+                    String methodName = spoonCl.qualifiedClassName();
+                    int lineNumber = patch.getLineNumber();
+                    String methodSignature = this.nopolContext.getProflMethod().lookup(methodName, lineNumber);
+
+                    if (methodSignature == null) {
+                        try {
+                            methodSignature = this.nopolContext.getProflMethod().getMethodFromPackageNumber(methodName, lineNumber);
+                        } catch (Exception ex) {
+                            logger.info(String.format("Could not find appropriate method signature for %s:%d", methodName, lineNumber));
+                        }
+                    }
+
+                    logger.info("modifiedMethodSignature=" + methodSignature);
+                    logger.info("lineNumber=" + lineNumber);
+
+                    Map<String, Double> m = new TreeMap();
+                    m.put(methodSignature, this.nopolContext.getProflRank().getGeneralMethodSusValues().get(methodSignature));
+
+                    if (methodSignature != null) {
+                        if (fp > 0 && pf == 0) {
+                            if (ff == 0) {
+                                logger.info("Full CleanFix detected");
+                                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.CLEAN_FIX_FULL, m);
+                            } else {
+                                logger.info("Partial CleanFix detected");
+                                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.CLEAN_FIX_PARTIAL, m);
+                            }
+                        } else if (fp > 0 && pf > 0) {
+                            if (ff == 0) {
+                                logger.info("Full NoisyFix detected");
+                                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NOISY_FIX_FULL, m);
+                            } else {
+                                logger.info("Partial NoisyFix detected");
+                                this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NOISY_FIX_PARTIAL, m);
+                            }
+                        } else if (fp == 0 && pf == 0) {
+                            logger.info("NoneFix detected");
+                            this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NONE_FIX, m);
+                        } else {
+                            logger.info("NegFix detected");
+                            this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NEG_FIX, m);
+                        }
+                    } else {
+                        System.out.println(String.format("Cold not find information for %s %d", methodName, lineNumber));
+                    }
+
+                    saveProflInformation();
+                    savePatchInformation(methodSignature, patch, ++patchNum);
+                    
+                }
+
+                if (nopolContext.isSkipRegressionStep() || validationListener.failedTests().isEmpty()) {
                     finalPatches.add(patch);
                 } else {
                     logger.debug("Could not find a valid patch in {}", sourceLocation);
                 }
             }
-            logger.debug("Skipped {} patches for sake of performance", tmpPatches.size() - nopolContext.getMaxPatches());
+
+            logger.debug("Skipped {} patches for sake of performance", Math.max(0, tmpPatches.size() - nopolContext.getMaxPatches()));
         }
 
         return finalPatches;
     }
 
-    private boolean isOk(Patch newRepair, List<TestResult> testClasses, NopolProcessor processor) {
+    private TestCasesListener isOk(Patch newRepair, List<TestCase> testClasses, NopolProcessor processor) {
         logger.trace("Suggested patch: {}", newRepair);
         try {
             return testPatch.passesAllTests(newRepair, testClasses, processor);
@@ -424,6 +478,7 @@ public class NoPol {
         for (int i = 0; i < tests.size(); i++) {
             TestResult testResult = tests.get(i);
             if (!testResult.isSuccessful()) {
+
                 failingClassTest.add(testResult.getTestCase());
             }
         }
@@ -604,5 +659,45 @@ public class NoPol {
             } catch (IOException ignore) {
             }
         }
+    }
+
+    private void saveProflInformation() {
+        ProflResultRanking profl = this.nopolContext.getProflRank();
+
+        File genOutputFile = new File(String.format("%s/generalSusInfo.profl", this.nopolContext.getOutputFolder()));
+        writeToFile(profl.outputSbflSus(), genOutputFile);
+
+        File proflOutputFile = new File(String.format("%s/aggregatedSusInfo.profl", this.nopolContext.getOutputFolder()));
+        writeToFile(profl.outputProflResults(), proflOutputFile);
+
+        File catOutputFile = new File(String.format("%s/category_information.profl", this.nopolContext.getOutputFolder()));
+        writeToFile(profl.outputProflCatInfo(), catOutputFile);
+    }
+
+    private void savePatchInformation(String methodSig, Patch patch, int patchNum) {
+        File patchOutputFile = new File(String.format("%s/patches/%d.patch", this.nopolContext.getOutputFolder(), patchNum));
+        LinkedList<String> messages = new LinkedList();
+        messages.add(String.format("Parent class: %s", patch.getRootClassName()));
+        messages.add(String.format("Method signature: %s", methodSig));
+        messages.add(String.format("Patched lines %d", patch.getLineNumber()));
+        messages.add(String.format("Patch type: %s", patch.getType().name()));
+        messages.add(String.format("Current time: %d", System.currentTimeMillis()));
+        messages.add("-------------");
+        messages.add(patch.asString());
+        writeToFile(messages, patchOutputFile);
+    }
+
+    private void writeToFile(Collection<String> message, File output) {
+        System.out.println(String.format("Saving to %s", output.getAbsolutePath()));
+        output.getParentFile().mkdirs();
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter(output))) {
+            for (String s : message) {
+                bw.write(s);
+                bw.newLine();
+            }
+        } catch (IOException ex) {
+            java.util.logging.Logger.getLogger(NoPol.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
     }
 }

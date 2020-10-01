@@ -3,10 +3,12 @@ package fr.inria.lille.repair.nopol.synth.dynamoth;
 import fr.inria.lille.commons.spoon.SpoonedClass;
 import fr.inria.lille.commons.spoon.SpoonedProject;
 import fr.inria.lille.localization.TestResult;
+import fr.inria.lille.repair.common.Candidates;
 import fr.inria.lille.repair.common.config.NopolContext;
 import fr.inria.lille.repair.common.patch.ExpressionPatch;
 import fr.inria.lille.repair.common.patch.Patch;
 import fr.inria.lille.repair.common.synth.RepairType;
+import fr.inria.lille.repair.expression.Expression;
 import fr.inria.lille.repair.nopol.NopolResult;
 import fr.inria.lille.repair.nopol.SourceLocation;
 import fr.inria.lille.repair.nopol.spoon.NopolProcessor;
@@ -14,10 +16,12 @@ import fr.inria.lille.repair.nopol.spoon.dynamoth.ConditionalInstrumenter;
 import fr.inria.lille.repair.nopol.synth.AngelicExecution;
 import fr.inria.lille.repair.nopol.synth.SMTNopolSynthesizer;
 import fr.inria.lille.repair.nopol.synth.Synthesizer;
-import fr.inria.lille.repair.common.Candidates;
-import fr.inria.lille.repair.expression.Expression;
 import fr.inria.lille.repair.synthesis.DynamothCodeGenesis;
 import fr.inria.lille.repair.synthesis.DynamothCodeGenesisImpl;
+import java.io.File;
+import java.net.URL;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 import org.junit.runner.Description;
 import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
@@ -31,11 +35,6 @@ import xxl.java.compiler.DynamicCompilationException;
 import xxl.java.junit.CompoundResult;
 import xxl.java.junit.TestCase;
 import xxl.java.junit.TestSuiteExecution;
-
-import java.io.File;
-import java.net.URL;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Created by spirals on 25/03/15.

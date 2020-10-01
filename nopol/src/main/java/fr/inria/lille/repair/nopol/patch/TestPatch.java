@@ -17,17 +17,17 @@ package fr.inria.lille.repair.nopol.patch;
 
 import fr.inria.lille.commons.spoon.SpoonedClass;
 import fr.inria.lille.commons.spoon.SpoonedProject;
-import fr.inria.lille.localization.TestResult;
 import fr.inria.lille.repair.common.config.NopolContext;
 import fr.inria.lille.repair.common.patch.Patch;
 import fr.inria.lille.repair.nopol.spoon.NopolProcessor;
+import java.io.File;
+import java.util.List;
 import org.junit.runner.Result;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import xxl.java.junit.TestCase;
+import xxl.java.junit.TestCasesListener;
 import xxl.java.junit.TestSuiteExecution;
-
-import java.io.File;
-import java.util.List;
 
 /**
  * @author Favio D. DeMarco
@@ -41,7 +41,6 @@ public final class TestPatch {
     private final File sourceFolder;
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-
     public TestPatch(final File sourceFolder, SpoonedProject spoonedProject, NopolContext nopolContext) {
         this.nopolContext = nopolContext;
         this.sourceFolder = sourceFolder;
@@ -52,21 +51,25 @@ public final class TestPatch {
         return SPOON_DIRECTORY;
     }
 
-    public boolean passesAllTests(Patch patch, List<TestResult> testClasses, NopolProcessor processor) {
+    public TestCasesListener passesAllTests(Patch patch, List<TestCase> testClasses, NopolProcessor processor) {
         logger.info("Applying patch: {}", patch);
         String qualifiedName = patch.getRootClassName();
         SpoonedClass spoonedClass = spoonedProject.forked(qualifiedName);
         processor.setValue(patch.asString());
         ClassLoader loader = spoonedClass.processedAndDumpedToClassLoader(processor);
         logger.info("Running test suite to check the patch \"{}\" is working", patch.asString());
-        Result result = TestSuiteExecution.runTestResult(testClasses, loader, nopolContext);
+
+        TestCasesListener listener = new TestCasesListener();
+        Result result = TestSuiteExecution.runTestCases(testClasses, loader, nopolContext, listener);
+
         if (result.wasSuccessful()) {
-            //spoonedClass.generateOutputFile(destinationFolder());
-            return true;
+            // spoonedClass.generateOutputFile(destinationFolder());
+            // return true;
         } else {
             logger.info("Failing tests {}", result.getFailures());
         }
-        return false;
+
+        return listener;
     }
 
     private File destinationFolder() {

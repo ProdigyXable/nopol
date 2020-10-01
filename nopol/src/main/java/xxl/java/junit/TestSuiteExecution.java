@@ -2,20 +2,18 @@ package xxl.java.junit;
 
 import fr.inria.lille.localization.TestResult;
 import fr.inria.lille.repair.common.config.NopolContext;
+import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.*;
 import org.junit.runner.Description;
 import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunListener;
 import org.slf4j.Logger;
 import xxl.java.container.classic.MetaList;
-import xxl.java.support.Singleton;
-
-import java.util.Collection;
-import java.util.List;
-import java.util.concurrent.*;
-
 import static xxl.java.library.LoggerLibrary.logDebug;
 import static xxl.java.library.LoggerLibrary.loggerFor;
+import xxl.java.support.Singleton;
 
 public class TestSuiteExecution {
 
@@ -47,8 +45,16 @@ public class TestSuiteExecution {
         return runTestCases(testCases, classLoaderForTestThread, nullRunListener(), nopolContext);
     }
 
+    public static CompoundResult runTestCases(Collection<TestCase> testCases, ClassLoader classLoaderForTestThread, NopolContext nopolContext, RunListener listener) {
+        return runTestCases(testCases, classLoaderForTestThread, listener, nopolContext);
+    }
+
     public static CompoundResult runTestResult(Collection<TestResult> testCases, ClassLoader classLoaderForTestThread, NopolContext nopolContext) {
         return runTestResult(testCases, classLoaderForTestThread, nullRunListener(), nopolContext);
+    }
+
+    public static CompoundResult runTestResult(Collection<TestResult> testCases, ClassLoader classLoaderForTestThread, NopolContext nopolContext, RunListener listener) {
+        return runTestResult(testCases, classLoaderForTestThread, listener, nopolContext);
     }
 
     public static Result runTest(String[] testClasses, ClassLoader loader, NopolContext nopolContext) {
@@ -69,7 +75,7 @@ public class TestSuiteExecution {
             if (testCase.getTestCase().className().startsWith("junit.")) {
                 continue;
             }
-            String completeTestName = testCase.getTestCase().className()+"#"+testCase.getTestCase().testName();
+            String completeTestName = testCase.getTestCase().className() + "#" + testCase.getTestCase().testName();
             if (!nopolContext.getTestMethodsToIgnore().contains(completeTestName)) {
                 results.add(runTestCase(testCase, classLoaderForTestThread, listener, nopolContext));
             }
@@ -80,7 +86,7 @@ public class TestSuiteExecution {
     public static CompoundResult runTestCases(Collection<TestCase> testCases, ClassLoader classLoaderForTestThread, RunListener listener, NopolContext nopolContext) {
         List<Result> results = MetaList.newArrayList(testCases.size());
         for (TestCase testCase : testCases) {
-            String completeTestName = testCase.className()+"#"+testCase.testName();
+            String completeTestName = testCase.className() + "#" + testCase.testName();
             if (!nopolContext.getTestMethodsToIgnore().contains(completeTestName)) {
                 results.add(runTestCase(testCase, classLoaderForTestThread, listener, nopolContext));
             }

@@ -28,11 +28,10 @@ import fr.inria.lille.repair.nopol.NopolResult;
 import fr.inria.lille.repair.nopol.SourceLocation;
 import fr.inria.lille.repair.nopol.spoon.NopolProcessor;
 import fr.inria.lille.repair.synthesis.collect.spoon.DefaultConstantCollector;
-import org.slf4j.LoggerFactory;
-import xxl.java.junit.TestCase;
-
 import java.net.URL;
 import java.util.*;
+import org.slf4j.LoggerFactory;
+import xxl.java.junit.TestCase;
 
 /**
  * @author Favio D. DeMarco
