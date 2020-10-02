@@ -59,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -66,7 +67,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.logging.Level;
 import org.apache.commons.io.FileUtils;
 import org.json.JSONObject;
 import org.junit.runner.Result;
@@ -76,6 +76,7 @@ import spoon.reflect.cu.SourcePosition;
 import spoon.reflect.declaration.CtClass;
 import spoon.reflect.declaration.CtType;
 import utdallas.edu.profl.replicate.patchcategory.DefaultPatchCategories;
+import utdallas.edu.profl.replicate.patchcategory.PatchCategory;
 import utdallas.edu.profl.replicate.util.ProflResultRanking;
 import xxl.java.compiler.DynamicCompilationException;
 import xxl.java.junit.TestCase;
@@ -198,7 +199,9 @@ public class NoPol {
             }
         }
 
-        testListPerStatement = filteredTestListPerStatement;
+        if (!filteredTestListPerStatement.isEmpty()) {
+            testListPerStatement = filteredTestListPerStatement;
+        }
 
         this.nopolResult.setNbStatements(testListPerStatement.keySet().size());
         solveWithMultipleBuild(testListPerStatement);
@@ -372,32 +375,32 @@ public class NoPol {
                 Patch patch = tmpPatches.get(i);
                 TestCasesListener validationListener = isOk(patch, new LinkedList(this.originalTestResults.allTests()), synth.getProcessor());
                 if (nopolContext.isEnableProfl()) {
-                    int ff = 0;
-                    int fp = 0;
-                    int pf = 0;
-                    int pp = 0;
+                    Set<String> ff = new TreeSet();
+                    Set<String> fp = new TreeSet();
+                    Set<String> pf = new TreeSet();
+                    Set<String> pp = new TreeSet();
 
                     for (TestCase tc : originalTestResults.failedTests()) {
                         if (validationListener.failedTests().contains(tc)) {
-                            ff++;
+                            ff.add(tc.toString());
                             logger.info(String.format("[Fail->Fail] %s", tc));
                         } else {
-                            fp++;
+                            fp.add(tc.toString());
                             logger.info(String.format("[Fail->Pass] %s", tc));
                         }
                     }
 
                     for (TestCase tc : originalTestResults.successfulTests()) {
                         if (validationListener.failedTests().contains(tc)) {
-                            pf++;
+                            pf.add(tc.toString());
                             logger.info(String.format("[Pass->Fail] %s", tc));
                         } else {
-                            pp++;
-                            logger.info(String.format("[Pass->Pass] %s", tc));
+                            pp.add(tc.toString());
+                            // logger.info(String.format("[Pass->Pass] %s", tc));
                         }
                     }
 
-                    logger.info(String.format("Test suite results: ff=%d, fp=%d, pf=%d, pp=%d", ff, fp, pf, pp));
+                    logger.info(String.format("Test suite results: ff=%d, fp=%d, pf=%d, pp=%d", ff.size(), fp.size(), pf.size(), pp.size()));
 
                     String methodName = spoonCl.qualifiedClassName();
                     int lineNumber = patch.getLineNumber();
@@ -416,38 +419,46 @@ public class NoPol {
 
                     Map<String, Double> m = new TreeMap();
                     m.put(methodSignature, this.nopolContext.getProflRank().getGeneralMethodSusValues().get(methodSignature));
+                    PatchCategory pc;
 
                     if (methodSignature != null) {
-                        if (fp > 0 && pf == 0) {
-                            if (ff == 0) {
+                        if (fp.size() > 0 && pf.size() == 0) {
+                            if (ff.size() == 0) {
                                 logger.info("Full CleanFix detected");
                                 this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.CLEAN_FIX_FULL, m);
+                                pc = DefaultPatchCategories.CLEAN_FIX_FULL;
                             } else {
                                 logger.info("Partial CleanFix detected");
                                 this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.CLEAN_FIX_PARTIAL, m);
+                                pc = DefaultPatchCategories.CLEAN_FIX_PARTIAL;
                             }
-                        } else if (fp > 0 && pf > 0) {
-                            if (ff == 0) {
+                        } else if (fp.size() > 0 && pf.size() > 0) {
+                            if (ff.size() == 0) {
                                 logger.info("Full NoisyFix detected");
                                 this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NOISY_FIX_FULL, m);
+                                pc = DefaultPatchCategories.NOISY_FIX_FULL;
                             } else {
                                 logger.info("Partial NoisyFix detected");
                                 this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NOISY_FIX_PARTIAL, m);
+                                pc = DefaultPatchCategories.NOISY_FIX_PARTIAL;
                             }
-                        } else if (fp == 0 && pf == 0) {
+                        } else if (fp.size() == 0 && pf.size() == 0) {
                             logger.info("NoneFix detected");
                             this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NONE_FIX, m);
+                            pc = DefaultPatchCategories.NONE_FIX;
                         } else {
                             logger.info("NegFix detected");
                             this.nopolContext.getProflRank().addCategoryEntry(DefaultPatchCategories.NEG_FIX, m);
+                            pc = DefaultPatchCategories.NEG_FIX;
                         }
+
+                        saveProflInformation();
+                        savePatchInformation(methodSignature, patch, ++patchNum);
+                        saveTestInformation(ff, fp, pf, pp, pc, methodSignature, lineNumber);
                     } else {
-                        System.out.println(String.format("Cold not find information for %s %d", methodName, lineNumber));
+                        System.out.println(String.format("Could not find information for %s %d", methodName, lineNumber));
                     }
 
-                    saveProflInformation();
-                    savePatchInformation(methodSignature, patch, ++patchNum);
-                    
                 }
 
                 if (nopolContext.isSkipRegressionStep() || validationListener.failedTests().isEmpty()) {
@@ -696,8 +707,33 @@ public class NoPol {
                 bw.newLine();
             }
         } catch (IOException ex) {
-            java.util.logging.Logger.getLogger(NoPol.class.getName()).log(Level.SEVERE, null, ex);
+            System.out.println("Could not write to file: " + output);
+            System.out.println(ex.getMessage());
         }
 
+    }
+
+    private void saveTestInformation(Set<String> ff, Set<String> fp, Set<String> pf, Set<String> pp, PatchCategory pc, String methodName, int lineNumber) {
+        File patchOutputFile = new File(String.format("%s/tests/%d.tests", this.nopolContext.getOutputFolder(), patchNum));
+        LinkedList<String> messages = new LinkedList();
+        messages.add(String.format("Test suite results: ff=%d, fp=%d, pf=%d, pp=%d", ff.size(), fp.size(), pf.size(), pp.size()));
+        messages.add(String.format("Modified method: %s", methodName));
+        messages.add(String.format("Modified line: %d", lineNumber));
+        messages.add(String.format("PatchCategory: %s", pc.getCategoryName()));
+        messages.add("-------------");
+
+        for (String s : ff) {
+            messages.add(String.format("[Fail->Fail] %s", s));
+        }
+
+        for (String s : fp) {
+            messages.add(String.format("[Fail->Pass] %s", s));
+        }
+
+        for (String s : pf) {
+            messages.add(String.format("[Pass->Fail] %s", s));
+        }
+
+        writeToFile(messages, patchOutputFile);
     }
 }
